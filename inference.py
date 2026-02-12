@@ -29,7 +29,7 @@ from utils.output_json_process import (
 
 
 client = OpenAI(
-    api_key=<API_KEY>,  #柏拉图的api
+    api_key=<API_KEY>,  #
     base_url=<BASE_URL>
 )
 model = 'gemini-2.5-pro'   # qwen3-235b-a22b gemini-2.5-pro
@@ -55,8 +55,8 @@ def extract_cs_changed_lines(diff_text: str, include: str = "both"):
     ps = PatchSet(diff_text)
     out = []
     for pf in ps:
-        target = normalize_path(pf.target_file)  # 新文件路径（b/...）
-        source = normalize_path(pf.source_file)  # 旧文件路径（a/...）
+        target = normalize_path(pf.target_file)  # new file path（b/...）
+        source = normalize_path(pf.source_file)  # old file path（a/...）
 
         for hunk in pf:
             for line in hunk:
