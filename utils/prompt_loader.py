@@ -35,8 +35,8 @@ def load_prompt(template_name: str, **context: Any) -> Union[str, Tuple[str, str
     if not template_path.exists():
         raise FileNotFoundError(f"Template file not found: {template_path}")
 
-    # Load YAML content
-    with open(template_path) as f:
+    # Load YAML content with UTF-8 encoding
+    with open(template_path, encoding='utf-8') as f:
         template_data = yaml.safe_load(f)
 
     if not isinstance(template_data, dict):

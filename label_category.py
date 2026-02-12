@@ -17,8 +17,8 @@ performance_defect_categories = ['Misusage of API and Language','Negative Visual
 
 custom_timeout = httpx.Timeout(1200.0, connect=60.0)
 client = OpenAI(
-    api_key=<API_KEY>,  #柏拉图的api
-    base_url=<BASE_URL>,
+    api_key='',
+    base_url='',
     timeout=custom_timeout,
 )
 

@@ -15,6 +15,8 @@ from loguru import logger
 from unidiff import PatchSet
 from pathlib import Path
 import random
+import argparse
+import re
 
 
 from utils.input_process import (
@@ -29,11 +31,10 @@ from utils.output_json_process import (
 
 
 client = OpenAI(
-    api_key=<API_KEY>,  #
-    base_url=<BASE_URL>
+    api_key='',  
+    base_url='',
+    timeout=600
 )
-model = 'gemini-2.5-pro'   # qwen3-235b-a22b gemini-2.5-pro
-context_window = CONTEXT_WINDOWS[model]
 
 def normalize_path(p: str):
     if not p or p == "/dev/null":
@@ -50,12 +51,14 @@ def is_cs(path: str, case_insensitive: bool = True) -> bool:
 def extract_cs_changed_lines(diff_text: str, include: str = "both"):
     """
     include: 'added' | 'removed' | 'both'
+    Return a list of dicts, each containing path and line; when include='both',
+    also include 'kind' to distinguish 'added'/'removed'.
     """
     ps = PatchSet(diff_text)
     out = []
     for pf in ps:
-        target = normalize_path(pf.target_file)  # new file path（b/...）
-        source = normalize_path(pf.source_file)  # old file path（a/...）
+        target = normalize_path(pf.target_file)  # New file path (b/...)
+        source = normalize_path(pf.source_file)  # Old file path (a/...)
 
         for hunk in pf:
             for line in hunk:
@@ -172,7 +175,7 @@ def create_defect_localization_data(
     diff_patch_text = original_data['context_info']['commit_patch_unified']
     defect_line_ground_truth = extract_cs_changed_lines(diff_patch_text, include="removed")
 
-    base_commit_files = [] 
+    base_commit_files = []  # List of files and contents before the change
     for file_info in original_data['context_info']['files']:
         if is_cs(normalize_path(file_info['path'])):
             base_commit_files.append({
@@ -187,7 +190,7 @@ def create_defect_localization_data(
             original_data,
             retrieval_output_dir=Path("./data"),
             k=k,
-            tokens=[<GITHUB_API_TOKEN>] 
+            tokens=""  # Replace with your GitHub API tokens
         )
         context_files = [{"path": p, "content": c} for p, c in retrieval_files.items()]
     
@@ -201,19 +204,29 @@ def create_defect_localization_data(
 
 
 if __name__ == "__main__":
-    file_source = 'bm25'  # "oracle" or "bm25"
-    k = 10  # Only used if file_source is "bm25"
-    if file_source == 'bm25':
-        output_path = f'./data/github_commit_request_output_with_issue_defect_localization_{model}_{file_source}_{k}.json'
-    else:
-        output_path = f'./data/github_commit_request_output_with_issue_defect_localization_{model}_{file_source}.json'
+    parser = argparse.ArgumentParser(description="Settings for Retrieve mode")
+    parser.add_argument('-f', '--file-source', default='bm25',
+                       help='File source, oracle or bm25')
+    parser.add_argument('-k', '--k', type=int, default=10,
+                       help='Number of files returned in BM25 mode')
+    parser.add_argument('-m', '--model', default='gemini-2.5-pro',
+                       help='Model name')
 
+    args = parser.parse_args()
+    file_source = args.file_source
+    k = args.k
+    model = args.model
+    context_window = CONTEXT_WINDOWS[model]
+    output_path = f'./data/github_commit_request_output_with_issue_defect_localization_{model}_{file_source}_{k}.json'
 
-
-    with open('./data/github_commit_request_output_with_issue_final_labeled.json','r') as f, open(output_path,'w') as fw:
+    with open('./data/github_commit_request_output_with_issue_final_labeled.json','r', encoding='utf-8') as f, open(output_path,'w', encoding='utf-8') as fw:
     
         data = f.readlines()
-        for i,line in enumerate(tqdm(data, desc="Processing instance", unit="instance")):
+        total_instances = len(data)
+        pbar = tqdm(total=total_instances, desc=f"Processing ({model}, {file_source})", unit="instance")
+        
+        for i,line in enumerate(data):
+            pbar.set_postfix({'current': i+1, 'total': total_instances})
             instance = json.loads(line)
             try:
                 defect_localization_data = create_defect_localization_data(
@@ -224,6 +237,7 @@ if __name__ == "__main__":
 
             except Exception as e:
                 logger.error(f"Error processing instance {i}: {e}")
+                pbar.update(1)
                 continue
 
             problem_statement = defect_localization_data['problem_statement']
@@ -241,12 +255,81 @@ if __name__ == "__main__":
             messages = [{'role': 'system', 'content': sysyem_prompt}]
             messages.append({'role': 'user', 'content': user_prompt})
 
-            if count_message_tokens(messages, model) > (context_window - 10000):
-                messages = reduce_code_text_to_fit_context(messages, model, context_window)
-
+            token_count = count_message_tokens(messages, model)
             
-            try:
-                if 'qwen' in model:
+            # For gpt-5, use a larger buffer (consider output tokens and API limits)
+            buffer_tokens = context_window // 10
+            
+            initial_target_tokens = context_window - buffer_tokens
+            target_tokens = initial_target_tokens
+            
+            # Retry mechanism: up to 3 retries; the first token reduction also counts as one retry
+            max_retries = 3
+            retry_count = 0
+            chat_completion = None
+            last_error = None
+            
+            def reduce_tokens(messages, current_token_count, current_target, attempt_num, reason="initial check"):
+                """Unified token reduction function"""
+                excess_ratio = (current_token_count - current_target) / current_token_count if current_token_count > 0 else 0
+                
+                # Adjust reduction factor based on excess ratio and retry count (more conservative strategy)
+                if excess_ratio > 0.3:  
+                    reduction_factor = 0.75  
+                elif excess_ratio > 0.15:  
+                    reduction_factor = 0.80  
+                else:  # Subsequent attempts, moderate reduction
+                    reduction_factor = 0.90  
+                
+                # If the API returns an error and token_count < target_tokens, the actual limit is stricter.
+                # In this case, compute the new target based on current_token_count instead of current_target;
+                # otherwise target_reduction_ratio would be > 1, making the reduction ineffective.
+                if excess_ratio < 0 and "API returned" in reason:
+                    # API error but token_count < target, meaning the actual limit is stricter than target
+                    # Compute new target based on actual token_count to ensure target_reduction_ratio < 1
+                    new_target = int(current_token_count * reduction_factor)
+                else:
+                    # Normal case: compute based on current_target
+                    new_target = int(current_target * reduction_factor)
+                
+                target_reduction_ratio = new_target / current_token_count if current_token_count > 0 else reduction_factor
+                
+                logger.info(f"[Attempt {attempt_num}/{max_retries}] {reason}: "
+                           f"tokens {current_token_count:,} > target {current_target:,} "
+                           f"(excess: {excess_ratio:.1%}), reducing to {new_target:,} tokens (factor: {reduction_factor:.0%})")
+                
+                # Perform reduction, passing target reduction ratio to improve efficiency
+                messages = reduce_code_text_to_fit_context(
+                    messages, model, new_target + buffer_tokens, 
+                    buffer_tokens=buffer_tokens,
+                    target_reduction_ratio=target_reduction_ratio
+                )
+                new_token_count = count_message_tokens(messages, model)
+                reduction_achieved = current_token_count - new_token_count
+                actual_reduction_ratio = reduction_achieved / current_token_count if current_token_count > 0 else 0
+                
+                logger.info(f"Reduction result: {current_token_count:,} -> {new_token_count:,} tokens "
+                           f"(-{reduction_achieved:,}, {actual_reduction_ratio:.1%} reduction)")
+                
+                return messages, new_token_count, new_target
+            
+            while retry_count < max_retries:
+                # Check whether token reduction is needed
+                if token_count > target_tokens:
+                    retry_count += 1
+                    reason = "Token count exceeds limit" if retry_count == 1 else "Still exceeds after reduction"
+                    messages, token_count, target_tokens = reduce_tokens(
+                        messages, token_count, target_tokens, retry_count, reason
+                    )
+                
+                # Try the API call
+                try:  
+                    if retry_count == 0:
+                        logger.info(f"Requesting instance {i+1}/{total_instances} with model {model} (tokens: {token_count:,})")
+                    else:
+                        logger.info(f"Requesting instance {i+1}/{total_instances} with model {model} "
+                                   f"(tokens: {token_count:,}, after {retry_count} reduction{'s' if retry_count > 1 else ''})")
+                    
                     model_kwargs = {"extra_body":{"enable_thinking":False}}
                     chat_completion = client.chat.completions.create(
                         messages=messages,
@@ -254,28 +337,89 @@ if __name__ == "__main__":
                         temperature=0.1,
                         **model_kwargs
                     )
-                else:
-                    chat_completion = client.chat.completions.create(
-                        messages=messages,
-                        model=model,
-                        temperature=0.1,
+                    # Success, exit retry loop
+                    if retry_count > 0:
+                        logger.info(f"Successfully processed instance {i+1} after {retry_count} reduction{'s' if retry_count > 1 else ''}")
+                    break
+                    
+                except Exception as e:
+                    last_error = e
+                    error_str = str(e)
+                    error_code = None
+                    
+                    # Try to extract error code (support multiple error formats)
+                    try:
+                        # OpenAI SDK error format
+                        if hasattr(e, 'response') and e.response is not None:
+                            if hasattr(e.response, 'json'):
+                                error_data = e.response.json()
+                            elif hasattr(e.response, 'text'):
+                                import json
+                                error_data = json.loads(e.response.text)
+                            else:
+                                error_data = {}
+                            
+                            if 'error' in error_data:
+                                error_code = error_data['error'].get('code')
+                        
+                        # Check whether error message contains error code (string format)
+                        if 'context_length_exceeded' in error_str:
+                            error_code = 'context_length_exceeded'
+                    except:
+                        pass
+                    
+                    # Check whether this is a context window overflow error
+                    is_context_error = (
+                        'context_length_exceeded' in error_str or 
+                        'context window' in error_str.lower() or
+                        'exceeds the context window' in error_str.lower() or
+                        'input exceeds the context window' in error_str.lower() or
+                        'Range of input length' in error_str.lower() or
+                        error_code == 'context_length_exceeded'
                     )
-            except Exception as e:
-                print('Error at line {}: {}'.format(i, str(e)))
-                break
+                    
+                    if is_context_error and retry_count < max_retries:
+                        # Context window error: continue reducing and retry
+                        retry_count += 1
+                        messages, token_count, target_tokens = reduce_tokens(
+                            messages, token_count, target_tokens, retry_count, "API returned context window error"
+                        )
+                        # Continue retry loop
+                        continue
+                    else:
+                        # Not a context error, or maximum retries reached
+                        if retry_count >= max_retries and is_context_error:
+                            logger.error(f'Error at line {i}: Context window exceeded after {max_retries} retries. '
+                                       f'Final tokens: {token_count:,}, target: {target_tokens:,}')
+                        else:
+                            logger.error(f'Error at line {i}: {error_str}')
+                        # Exit retry loop and continue with the next instance
+                        break
+            
+            # If all retries fail, skip this instance
+            if chat_completion is None:
+                logger.error(f'Failed to get response for instance {i} after {max_retries} retries: {last_error}')
+                pbar.update(1)
+                continue
 
             response_text = chat_completion.choices[0].message.content
             print(response_text)
+            # If model is gpt-5, remove content between <think>...</think>
+            if model == 'gpt-5.2':
+                response_text = re.sub(r'<think>.*?</think>', '', response_text, flags=re.DOTALL)
             try:
                 parse_results = parse_llm_content(response_text)
             except Exception as e:
                 parse_results = []
-                print('Error at line {}: {}'.format(i, str(e)))
+                logger.error('Error parsing response at line {}: {}'.format(i, str(e)))
             
             instance['inference_results'] = parse_results
             instance['ground_truth_results'] = defect_localization_data['defect_line_ground_truth']
             instance['context_files_paths'] = [cf['path'] for cf in files]
 
-            fw.write(json.dumps(instance) + '\n')
+            fw.write(json.dumps(instance, ensure_ascii=False) + '\n')
             fw.flush()
+            pbar.update(1)
+        
+        pbar.close()
 

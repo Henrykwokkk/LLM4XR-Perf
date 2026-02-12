@@ -52,7 +52,7 @@ def read_file_with_limit(content: str, max_lines_to_read: int = None) -> str:
         return "\n".join(content.splitlines()[:max_lines_to_read])
 
 
-def read_file_to_string(file_path: Path | str, *, max_lines_to_read: int = None) -> str:
+def read_file_to_string(file_path: str, max_lines_to_read: int = None) -> str:
     """Function to detect encoding and read file to string with an optional line limit."""
     if isinstance(file_path, str):
         file_path = Path(file_path)
@@ -62,7 +62,6 @@ def read_file_to_string(file_path: Path | str, *, max_lines_to_read: int = None)
         return read_file_with_limit(content, max_lines_to_read)
     except ValueError:
         pass
-
     try:
         detected_encoding = detect_file_encoding(file_path)
         # Read the file with the detected encoding
