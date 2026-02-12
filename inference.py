@@ -50,7 +50,6 @@ def is_cs(path: str, case_insensitive: bool = True) -> bool:
 def extract_cs_changed_lines(diff_text: str, include: str = "both"):
     """
     include: 'added' | 'removed' | 'both'
-    返回 dict 列表，每条含 path 和 line；当 include='both' 时，额外带 kind 区分 'added'/'removed'
     """
     ps = PatchSet(diff_text)
     out = []
