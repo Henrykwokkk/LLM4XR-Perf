@@ -11,7 +11,7 @@ with open('./data/github_commit_request_output_with_issue_defect_localization_ge
         instance = json.loads(line)
         ground_truth_in_context = []
         target_file_paths = []
-        # 只管出现生成结果里的file_path，将其作为ground truth的筛选条件，放进ground_truth_in_context
+        # 
         for inference_result in instance['inference_results']:
             for file_path in inference_result.keys():
                 if file_path not in target_file_paths:
