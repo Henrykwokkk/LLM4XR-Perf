@@ -13,14 +13,14 @@ system: |-
   6. If you are unsure, output only your top candidates (up to 10 lines total).
   7. Think step by step, but do not output your reasoning; output JSON objects only.
 
-  Input format
+user: |-
+  [Input format]
   You will receive:
 
   issue: a natural-language description of symptoms, error messages, expected vs. actual behavior, environment, steps to reproduce, etc. It is enclosed in <issue>...</issue> tags.
   code_files: a set of source code files, each with a file path and content. It is enclosed in <code_files>...</code_files> tags. Each file starts with a line "[start of {file_path}]" and ends with a line "[end of {file_path}]". The content have line numbers prefixed (4 spaces, then the line number, then a space, then the code) for reference.
-
-  Output format (must be NDJSON: one JSON object per line)
-
+  
+  [Output format (must be JSON format)]
   Each line is a JSON object with exactly two keys:
   "path": string, the file path (must match one of the provided files)
   "line": integer, the 1-based line number to be modified in the fixing commit
@@ -29,10 +29,18 @@ system: |-
   {"path": "src/Foo.cs", "line": 128}
   {"path": "src/Foo.cs", "line": 129}
   {"path": "src/Bar/Baz.cs", "line": 47}
+   Wrap the JSON objects in a JSON array of the value of the key "defect_lines" in a dict, the output should be like this:
+  {
+    "defect_lines":[
+      {"path": "src/Foo.cs", "line": 128},
+      {"path": "src/Foo.cs", "line": 129},
+      {"path": "src/Bar/Baz.cs", "line": 47}
+    ]
+  }
 
-user: |-
   Now analyze the inputs below and produce the JSON only.
-
+  
+  [inputs]
   <issue>
   {{ problem_statement }}
   </issue>
@@ -56,5 +64,5 @@ user: |-
   </code_files>
   {% endif -%}
 
-  Please respond with ONLY the JSON objects as specified above, one per line, and nothing else.
+  Please respond as the output format specified above. Do not output other contents.
 
