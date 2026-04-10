@@ -29,7 +29,7 @@ model = "gemini-2.5-pro"   # qwen3-235b-a22b gemini-2.5-pro
 print(model)
 
 
-data_file = '/data/guohy/VRopenproject/crawl-script/202509_PerfDetector/data/github_commit_request_output_with_pr.json'
+data_file = './data/github_commit_request_output_with_pr.json'
 context_window = CONTEXT_WINDOWS[model]
 
 
