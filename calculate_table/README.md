@@ -22,7 +22,6 @@ been corrected.
 ```text
 PerfDector/
 ├── calculate_table/
-├── data/
 ├── inference.py
 └── utils/
 ```
