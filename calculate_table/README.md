@@ -26,8 +26,6 @@ python calculate_table/Table_7_recompute_conditional_metrics.py
 
 The Table 6 scripts reuse `inference.py` and modules in `utils/`. BM25 may need
 GitHub access when its local retrieval cache is incomplete; supply a token with
-the `GITHUB_TOKEN` environment variable or the `--token` option. No access
-token is stored in these scripts.
+the `GITHUB_TOKEN` environment variable or the `--token` option. 
 
-Use `--help` on scripts that expose command-line options. Generated data files
-are ignored by the directory's `.gitignore`.
+Use `--help` on scripts that expose command-line options.
