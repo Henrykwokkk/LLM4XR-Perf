@@ -1,0 +1,5 @@
+loguru
+openpyxl
+torch
+tqdm
+transformers
