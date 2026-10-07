@@ -1,9 +1,7 @@
-# Paper table calculation scripts
+# Paper table regeneration scripts
 
 This directory contains the scripts used to calculate the data reported in
-Tables 1–7. The scripts read experiment artifacts from the parent project and
-write generated JSON, CSV, or LaTeX files under the project's `data/` or
-evaluation-output directories.
+Tables 1–7. 
 
 ## Script map
 
