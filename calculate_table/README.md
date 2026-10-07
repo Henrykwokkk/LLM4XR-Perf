@@ -20,9 +20,12 @@ The directory name is `calculate_table`; the former `calulate_table` typo has
 been corrected.
 
 ```text
-PerfDector/
+LLM4XR-Perf/
 ├── calculate_table/
 ├── inference.py
+├── evaluation.py
+├── label_category.py
+├── templates/
 └── utils/
 ```
 
