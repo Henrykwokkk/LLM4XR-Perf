@@ -14,20 +14,6 @@ Tables 1–7.
 | Table 6 | Calculate CodeBERT file-level Recall@k | `Table_6_evaluate_codebert_file_recall.py` |
 | Table 7 | Calculate conditional and end-to-end metrics for varying k | `Table_7_recompute_conditional_metrics.py` |
 
-## Project layout
-
-The directory name is `calculate_table`; the former `calulate_table` typo has
-been corrected.
-
-```text
-LLM4XR-Perf/
-├── calculate_table/
-├── inference.py
-├── evaluation.py
-├── label_category.py
-├── templates/
-└── utils/
-```
 
 ## Usage
 
@@ -45,10 +31,3 @@ token is stored in these scripts.
 
 Use `--help` on scripts that expose command-line options. Generated data files
 are ignored by the directory's `.gitignore`.
-
-Line-level scoring uses the LaTeX evaluation scope (retrieved files intersected
-with ground-truth files), unique `(path, line)` locations, and one-to-one
-tolerance matching. Table 7 and Tables 3–5 calculate their reported metrics
-from pooled integer counts. End-to-end accuracy retains the full benchmark (or
-full category) population in its denominator, including retrieval failures and
-missing outputs.
